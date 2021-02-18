@@ -1,0 +1,476 @@
+{% extends "network/layout.html" %}
+{% load static %}
+        
+{% block body %}
+    <div id="view" class="d-none">{{ view }}</div>
+
+    {% if profile_owner %}
+        <div id="profile" class="d-none">{{ profile_owner }}</div>
+    {% endif %}
+    
+    <div class="min-vh-100 border-left border-right" id="app"></div>
+
+    <script type="text/babel">
+
+        class ComposeForm extends React.Component {
+
+            state = {
+                content: ""
+            }
+            
+            render() {
+                return (
+                    <div className="border-bottom p-3">
+                        <div className="lead mb-2">New post</div>
+                        <form onSubmit={this.handleSubmit}>
+                            <div className={this.props.to_compose === "comment" ? "d-flex" : ""}>
+                                <textarea 
+                                    onChange={this.handleChange} 
+                                    className="form-control"
+                                    value={this.state.content} 
+                                    rows="2"
+                                    placeholder="What's happening?"
+                                ></textarea>                                 
+                                <input 
+                                    className="btn btn-primary d-flex ml-auto mt-2"  
+                                    type="submit" 
+                                    value="Post"
+                                    disabled={this.state.content.trim().replace(/(\r\n|\n|\r)/gm,"") === "" ? true : false} 
+                                />
+                            </div>
+                        </form>
+                    </div>
+                );
+            }
+
+            handleChange = (event) => {
+                this.setState({
+                    content: event.target.value
+                })
+            }
+
+            handleSubmit = (event) => {
+
+                // Submit the post
+                fetch(`api/compose/post`, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        content: this.state.content
+                    })
+                })
+                .then(response => response.json())
+                .then(data => {
+
+                    // Print result
+                    console.log(data)
+                    
+                    // Clear the textarea
+                    this.setState({content: ""})
+
+                    // Reload the page (Temporary solution) 
+                    location.reload()
+                })
+                .catch(error => console.log(error));
+
+                // Stop form from submitting
+                event.preventDefault();
+            }
+        }
+
+
+        class Post extends React.Component {
+            state = {
+                editMode: false, 
+                likes: this.props.post.likes,
+                liked: this.props.post.liked,
+                content: this.props.post.content 
+            }
+
+            render() {
+                return (
+                    <div className="border-bottom p-3">
+                        <a className="font-weight-bold text-dark" href={this.props.post.publisher}>
+                            {this.props.post.publisher}
+                        </a>
+                        &nbsp;&middot;&nbsp;
+                        <small className="small text-muted">{this.props.post.timestamp}</small> 
+                        {this.state.editMode ? 
+                            <>
+                                <textarea 
+                                    className="form-control" 
+                                    value={this.state.content} 
+                                    onChange={this.handleChange}
+                                ></textarea>
+                                <button 
+                                    className="btn btn-sm btn-primary d-flex ml-auto mt-2" 
+                                    onClick={this.handleSubmit} 
+                                    disabled={this.state.content.trim().replace(/(\r\n|\n|\r)/gm,"") === "" ? true : false}
+                                >Save</button>
+                            </> :
+                            <>
+                                { this.props.username === this.props.post.publisher && 
+                                <button className="btn btn-link" onClick={this.handleEdit}>edit</button>}
+                                <div>{this.state.content}</div> 
+                            </>
+                        }
+                
+                        <button className="btn btn-link text-decoration-none text-danger p-0 mt-2" onClick={this.handleLike}>
+                            {this.state.liked ? <i className="fas fa-heart"></i> : <i className="far fa-heart"></i>} {this.state.likes}
+                        </button>
+                    </div>  
+                );
+            }
+
+            handleLike = () => {
+                fetch(`api/toggle/post/${this.props.post.id}/like`, {
+                    method:"POST"
+                })
+                .then(res => res.json())
+                .then(data => {
+                    // Print result
+                    console.log(data)
+
+                    // Toggle Like/Unlike
+                    if (!data.error) {
+                        this.setState(state => ({
+                            liked: !state.liked, 
+                            likes: state.likes + (this.state.liked ? -1 : 1)
+                        }));
+                    } 
+                });
+            }
+        
+            handleEdit = () => {
+                this.setState({editMode: true})
+            }
+
+            handleChange = (event) => {
+                this.setState({content: event.target.value})
+            }
+
+            handleSubmit = (event) => {
+
+                // Submit the new content
+                fetch(`api/edit/post/${this.props.post.id}`, {
+                    method: 'PUT',
+                    body: JSON.stringify({
+                        content: this.state.content
+                    })
+                })
+                .then(res => res.json())
+                .then(data => {
+
+                    // Print result
+                    console.log(data)
+                    
+                    // Back to the default mode
+                    this.setState({editMode: false})
+                })
+                .catch(error => console.log(error));
+
+                event.preventDefault();
+            }
+        }
+
+
+        class TenPostsPage extends React.Component {
+        
+            state = {
+                posts: [],
+                p: {}
+            };
+           
+            render() {
+                return (
+                    <div>
+                        {this.state.p.numPages > 1 &&
+                            <nav className="d-flex justify-content-end border-bottom px-3">
+                                <ul className="pagination pagination-sm mt-3">
+
+                                    <li className={this.state.p.prev ? "page-item text-primary" : "page-item disabled text-secondary"}>
+                                        <span className="page-link btn" data-page={String(parseInt(this.state.p.currPage)-1)} onClick={this.handlePaginator}>Previous</span>
+                                    </li>
+                                    
+                                    {[...Array(this.state.p.numPages).keys()].map(page => 
+                                        <li key={page+1} className={this.state.p.currPage === page+1 ? "active page-item" : "page-item"}>
+                                            <span className="page-link btn" data-page={page+1} onClick={this.handlePaginator}>{page+1}</span>
+                                        </li>
+                                    )}
+                                
+                                    <li className={this.state.p.next ? "page-item text-primary" : "page-item disabled text-secondary"}>
+                                        <span className="page-link btn" data-page={String(parseInt(this.state.p.currPage)+1)} onClick={this.handlePaginator}>Next</span>
+                                    </li>
+                                </ul> 
+                            </nav> 
+                        }
+
+                        {this.state.posts.map((post) => (
+                            <Post 
+                                key={post.id} 
+                                post={post} 
+                                username={this.props.username}
+                            />
+                        ))}
+                    </div>
+                );
+
+            }
+
+            loadPage = (page) => {
+
+                // Fetch API for the page posts
+                fetch(`api/${this.props.view}/posts/${page}`)
+                .then(response => response.json())
+                .then(data => {
+
+                    // Print result
+                    console.log(data)
+
+                    // Change the state
+                    this.setState({posts: data.posts, p: data.paginator})
+                })
+                .catch(error => console.log(error));
+            }
+            
+            handlePaginator = (e) => {
+
+                // Load targeted page
+                this.loadPage(parseInt(e.target.dataset.page));
+            }
+
+            componentDidMount() {
+
+                // Load the first page
+                this.loadPage(1);
+            }
+        }
+
+
+        class ProfileInfo extends React.Component {
+            
+            state = {
+                inFollowing: false,
+                joined: "",
+                following: 0,
+                followers: 0,
+            };
+
+            render() {
+                return (
+                    <div className="p-3 border-bottom">  
+                        <div className="d-flex align-items-center">
+                            <span className="h3">{this.props.profileOwner}'s Profile</span>
+                            {this.props.username && this.props.username !== this.props.profileOwner &&
+                                <button className={this.state.inFollowing ? "btn btn-sm btn-primary ml-auto" : "btn btn-sm btn-outline-primary ml-auto"} onClick={this.handleFollow}>
+                                    {this.state.inFollowing ? "Following" : "Follow"}
+                                </button>
+                            }
+                        </div>
+                        <div className="mr-2 text-muted"><i className="far fa-calendar-alt mr-2"></i>Joined {this.state.joined}</div>
+                        <div className="d-flex">
+                            <div className="mr-4">
+                                <span className="font-weight-bold mr-2">{this.state.following}</span>
+                                <span className="text-muted">Following</span>
+                            </div>
+                            <div>
+                                <span className="font-weight-bold mr-2">{this.state.followers}</span>
+                                <span className="text-muted">Followers</span>
+                            </div>
+                        </div>
+                    </div>
+                )
+            }
+
+            handleFollow = () => {
+
+                // Fetch API to Follow/Unfollow
+                fetch(`/api/follow/${this.props.profileOwner}`, {method: 'POST'})
+                .then(response => response.json())
+                .then(data => {
+
+                    // Print result
+                    console.log(data);
+
+                    // If no errors 
+                    if (!data.error) {
+                        
+                        // change the state
+                        this.setState(state => ({
+                            inFollowing: !state.inFollowing, 
+                            followers: state.followers + (this.state.inFollowing ? -1 : 1) 
+                        }));
+                    }
+                })
+                .catch(error => console.log(error));
+            }
+
+            componentDidMount() {
+
+                // Fetch API for the profile owner Info
+                fetch(`api/profile/${this.props.profileOwner}/info`)
+                .then(response => response.json())
+                .then(data => {
+
+                    // Print result
+                    console.log(data)
+
+                    // Change the state
+                    this.setState({
+                        profileOwner: data.username, 
+                        followers: data.followers, 
+                        following: data.following,
+                        joined: data.joined
+                    })
+                })
+                .catch(error => console.log(error));
+
+                if (this.props.username) {
+
+                    // Fetch API to find out if user is already a follower of the profile owner
+                    fetch(`api/profile/${this.props.profileOwner}/in_Following`)
+                    .then(response => response.json())
+                    .then(info => {
+
+                        // Print result
+                        console.log(info)
+
+                        // Change the state
+                        this.setState({inFollowing: info.inFollowing })
+                    })
+                    .catch(error => console.log(error));
+                }
+                
+            }
+
+        }
+
+
+        class App extends React.Component {
+
+            state = {
+                view: this.props.view, 
+                profileOwner: this.props.profileOwner
+            };
+        
+
+            render() {
+                if (this.state.view === "home") {
+                    return (
+                        <>
+                            <div className="py-3 px-2 h3 border-bottom">All Posts </div>
+                            {this.props.username && <ComposeForm to_compose={"post"} />}
+                            <TenPostsPage 
+                                view={"home"} 
+                                username={this.props.username} 
+                            />
+                        </>
+                    );
+                } else if (this.state.view === "following") {
+                    return (
+                        <>
+                            <div className="py-3 px-2 h3 border-bottom">Following</div>
+                            <TenPostsPage 
+                                view={`following`} 
+                                updateAppView = {this.updateAppView}
+                                username={this.props.username} 
+                            />
+                        </>
+                    );
+                } else if (this.state.view === "profile" ) {
+                    return (
+                        <>  
+                            <ProfileInfo 
+                                key={`${this.state.profileOwner}Info`} 
+                                profileOwner={this.state.profileOwner} 
+                                username={this.props.username}
+                            />
+                            <TenPostsPage 
+                                key={`${this.state.profileOwner}Posts`} 
+                                view={`profile/${this.state.profileOwner}`} 
+                                username={this.props.username} 
+                            />
+                        </>
+                    );
+                } else if (this.state.view === "notFound") {
+                    return <h1 className="p-3">404 Not found</h1>
+                }
+
+            }
+            
+            handleSwitch = (event) => {
+
+                // Switch the view
+                this.setState({
+                    view: event.target.dataset.view,
+                    profileOwner: event.target.dataset.view === "profile" ? event.target.dataset.user : null  
+                }); 
+
+                // Push a state to History with everyswich
+                if (event.target.dataset.view === "home") {
+                    history.pushState({view: "home"}, null, "home")
+                } else if (event.target.dataset.view === "profile") {
+                    history.pushState({view: "profile", user: event.target.dataset.user}, null, event.target.dataset.user);
+                } else if (event.target.dataset.view === "following") {
+                    history.pushState({view: "following"}, null, "following");
+                }
+
+                // Stop the link from sending request for a new page
+                event.preventDefault();
+            }
+
+            componentDidMount() {
+
+                // Enable Switch view from the nav bar (Outside the app)
+                document.querySelectorAll(".view").forEach(view => {
+                    view.addEventListener("click", this.handleSwitch);
+                });
+
+                // Push intial state to History 
+                if (this.props.view === "home") {
+                    history.pushState({view: "home"}, null, "home")
+                } else if (this.props.view === "following") {
+                    history.pushState({view: "following"}, null, "following");
+                } else if (this.props.profileOwner) { 
+                    history.pushState({view: "profile", user: this.props.profileOwner}, null, this.props.profileOwner);
+                }
+
+                // Handle history to switch back 
+                window.onpopstate = (event) => {
+                    
+                    // In case the view is profile determie of which user 
+                    if (event.state.view === "profile") {
+                        this.setState({profileOwner: event.state.user});
+                    }
+
+                    // Swith the view
+                    this.setState({view: event.state.view});
+                }
+            } 
+        }
+
+
+        ReactDOM.render(
+            <App
+                view={document.querySelector('#view').innerHTML}
+                profileOwner={document.querySelector('#profile') ? document.querySelector('#profile').innerHTML : null}
+                username={
+                    document.querySelector('#user') ? 
+                    document.querySelector('#user').innerHTML : 
+                    null
+                }
+            />,
+            document.querySelector('#app')
+        );
+
+    </script>
+{% endblock %}
+
+{% block head %}
+    <!-- https://reactjs.org/docs/add-react-to-a-website.html -->
+    <script src="https://unpkg.com/react@16/umd/react.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@16/umd/react-dom.production.min.js" crossorigin></script>
+    <!-- <script src="https://unpkg.com/react@16/umd/react.development.js"></script> -->
+    <!-- <script src="https://unpkg.com/react-dom@16/umd/react-dom.development.js"></script> -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="{% static 'network/index.js' %}"></script>
+{% endblock %}

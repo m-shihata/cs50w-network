@@ -1,0 +1,25 @@
+User
+
+Circle
+owner = ForeignKey(User, on_delete=models.CASCADE, related_name=circle)
+followings = ManyToManyField(User, on_delete=models.CASCADE, related_name=followings)
+followers = ManyToManyField(User, on_delete=models.CASCADE, related_name=followers)
+
+
+Post
+publisher = ForeignKey(User, on_delete=models.CASCADE, related_name=posts)
+content = models.CharField(max_length=280)
+timestamp = models.DateTimeField(auto_now_add=True)
+
+
+Like
+post = ForeignKey(Post, on_delete=models.CASCADE, related_name=likes)
+liked_by = ForeignKey(User, on_delete=models.CASCADE, related_name=likes)
+timestamp = models.DateTimeField(auto_now_add=True)
+
+
+Comment
+post = ForeignKey(Post, on_delete=models.CASCADE, related_name=comments)
+commented_by = ForeignKey(User, on_delete=models.CASCADE, related_name=comments)
+content = models.CharField(max_length=280)
+timestamp  = models.DateTimeField(auto_now_add=True)
